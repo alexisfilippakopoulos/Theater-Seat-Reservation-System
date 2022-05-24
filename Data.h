@@ -52,13 +52,13 @@ int availableTel;                       //Available phone operators
 
 int availableCashiers;                  //Available cashiers
 
-int transactionsAttempted;              //Total amount of transactions attempted
+double transactionsAttempted;              //Total amount of transactions attempted
 
-int successfullTransactions;            //Total amount of successfull transactions
+double successfullTransactions;            //Total amount of successfull transactions
 
-int unsuccessfullTransactionsSeats;     //Total amount of unsuccessfull transactions due to seats
+double unsuccessfullTransactionsSeats;     //Total amount of unsuccessfull transactions due to seats
 
-int unsuccessfullTransactionsCard;      //Total amount of unsuccessfull transactions due to card being declined
+double unsuccessfullTransactionsCard;      //Total amount of unsuccessfull transactions due to card being declined
 
 int totalTransactionCost;               //Total transaction cost
 
@@ -72,11 +72,11 @@ pthread_mutex_t mutexAvailableTel = PTHREAD_MUTEX_INITIALIZER;
 
 pthread_mutex_t mutexAvailableCashiers = PTHREAD_MUTEX_INITIALIZER;
 
-pthread_mutex_t mutexConsole = PTHREAD_MUTEX_INITIALIZER;
-
 pthread_mutex_t mutexBankAcc = PTHREAD_MUTEX_INITIALIZER;
 
 pthread_mutex_t mutexTheaterTable = PTHREAD_MUTEX_INITIALIZER;
+
+pthread_mutex_t screenMutex = PTHREAD_MUTEX_INITIALIZER;
 
 
 //--------------------------------------Conditions--------------------------------------
@@ -84,6 +84,8 @@ pthread_mutex_t mutexTheaterTable = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t condAvailableTel = PTHREAD_COND_INITIALIZER;
 
 pthread_cond_t condAvailableCashiers = PTHREAD_COND_INITIALIZER;
+
+pthread_cond_t condTheaterTable = PTHREAD_COND_INITIALIZER;
 
 //--------------------------------------Functions--------------------------------------
 

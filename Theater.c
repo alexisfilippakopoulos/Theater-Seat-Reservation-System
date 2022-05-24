@@ -2,7 +2,16 @@
  
 
 unsigned int seed;
-
+int availableCashiers = Ncash;
+int availableTel = Ntel;
+int bankAccount = 0;
+double transactionsAttempted = 0;
+double successfullTransactions = 0;
+double unsuccessfullTransactionsSeats = 0;
+double unsuccessfullTransactionsCard = 0;
+int totalTransactionCost = 0;
+//waitingTime = 0;
+//serviceTime = 0;
 
 
 void* routine(void* arg){
@@ -12,6 +21,12 @@ void* routine(void* arg){
 	int flag;	
 	int seatCounter,rowCounter;						
 	int start,finish;
+	int cardAccepted;					//Card state. 0
+	seatCounter = 0;					//Counter to make sure the seats are continuous
+	int startingIndex = 0;				//Index to iterate in search of the seats
+	int endingIndex = 0;				//Index to iterate in search of the seats
+	int seatsIndex [seatsToReserve];	//Array to hold the index of the seats to be reserved
+	int ticketsCost = 0;				//Cost of the tickets
 	unsigned int seatSeed = seed + time(NULL);
 
 	struct timespec startTime;
@@ -32,11 +47,6 @@ void* routine(void* arg){
 	pthread_mutex_unlock(&screenMutex);
 	availableTel--;
 	pthread_mutex_unlock(&mutexAvailableTel);
-	seatCounter = 0;					//Counter to make sure the seats are continuous
-	int startingIndex = 0;				//Index to iterate in search of the seats
-	int endingIndex = 0;				//Index to iterate in search of the seats
-	int seatsIndex [seatsToReserve];	//Array to hold the index of the seats to be reserved
-	int ticketsCost = 0;				//Cost of the tickets
 	if(seatsZone == 0){
         rowCounter = 0;
         startingIndex = 0;
@@ -83,6 +93,11 @@ void* routine(void* arg){
 			pthread_mutex_lock(&screenMutex);
 			printf("Customer's %d transaction failed because there are no available seats.\n",custID);
 			pthread_mutex_unlock(&screenMutex);
+			unsuccessfullTransactionsSeats++;
+			pthread_mutex_lock(&mutexAvailableTel);
+			availableTel++;											//releasing the operator
+			pthread_cond_signal(&condAvailableTel);
+			pthread_mutex_unlock(&mutexAvailableTel);
 		}else{
 			//pthread_cond_signal(&condTheaterTable);
 			pthread_mutex_lock(&screenMutex);
@@ -112,9 +127,35 @@ void* routine(void* arg){
 			pthread_mutex_lock(&mutexAvailableTel);
 			availableTel++;											//releasing the operator
 			pthread_cond_signal(&condAvailableTel);
-			pthread_mutex_lock(&mutexAvailableTel);
-			sleep(10);
-			printf("Done with cashier!\n");
+			pthread_mutex_unlock(&mutexAvailableTel);
+
+			cardAccepted = rand_r(&seed) % 100 / 100.0f > PcardSuccess;
+			if(cardAccepted == 0){
+				pthread_mutex_lock(&screenMutex);
+				printf("Customer %d\n",custID);
+				printf("The transaction is completed!. Your seats are: zone <%d>, row <%d>,number <",seatsZone,rowCounter);
+				for(int a=0;a<seatCounter;a++){
+					printf("%d,",seatsIndex[a]);
+				}
+				printf("> and the total cost is <%d> euro.\n",ticketsCost);
+				pthread_mutex_unlock(&screenMutex);
+				successfullTransactions++;
+				pthread_mutex_lock(&mutexBankAcc);
+				bankAccount+=ticketsCost;
+				pthread_mutex_unlock(&mutexBankAcc);
+			}else{
+				pthread_mutex_lock(&screenMutex);
+				printf("Customer %d\n",custID);
+				printf("The transaction failed because your card was declined.");
+				pthread_mutex_unlock(&screenMutex);
+				unsuccessfullTransactionsCard++;
+
+				pthread_mutex_lock(&mutexTheaterTable);
+				for(int col = 0;col<seatCounter;col++){
+					theater[rowCounter][seatsIndex[col]] = 0;		//Freeing the seats that were to be reserved but the transaction failed
+				}
+				pthread_mutex_unlock(&mutexTheaterTable);
+			}
 			availableCashiers++;
 			pthread_cond_signal(&condAvailableCashiers);
 			
@@ -158,16 +199,7 @@ int main(int argc, char** argv) {
 				
 	}
 	*/
-	bankAccount = 0;
-	availableTel = Ntel;
-	availableCashiers = Ncash;
-	transactionsAttempted = 0;
-	successfullTransactions = 0;
-	unsuccessfullTransactionsSeats = 0;
-	unsuccessfullTransactionsCard = 0;
-	totalTransactionCost = 0;
-	waitingTime = 0;
-	serviceTime = 0;
+	
 
 	//-------------------------Thread Creation-------------------------
 	int customer_id[Ncust];
@@ -196,16 +228,23 @@ int main(int argc, char** argv) {
 		}
 				
 	}
-
+	printf("\n");
+	transactionsAttempted = successfullTransactions + unsuccessfullTransactionsCard + unsuccessfullTransactionsSeats;
 	//-------------------------Output-------------------------
+	printf("The total income from the ticket sales is %d\n",bankAccount);
+	printf("Total transactions attempted: %0.02f\n",transactionsAttempted);
+	printf("Successfull transactions percentage: %0.02f\n",successfullTransactions / transactionsAttempted);
+	printf("Unsuccessfull transactions due to card percentage: %0.02f\n",unsuccessfullTransactionsCard / transactionsAttempted);
+	printf("Unsuccessfull transactions due to seats percentage: %0.02f\n",unsuccessfullTransactionsSeats / transactionsAttempted);
+	printf("Successfull transactions: %0.02f\n",successfullTransactions );
+	printf("Unsuccessfull transactions due to card: %0.02f\n",unsuccessfullTransactionsCard );
+	printf("Unsuccessfull transactions due to seats: %0.02f\n",unsuccessfullTransactionsSeats);
 
 	//-------------------------Mutex Destruction-------------------------
 	
 	pthread_mutex_destroy(&mutexAvailableTel);
 
 	pthread_mutex_destroy(&mutexAvailableCashiers);
-
-	pthread_mutex_destroy(&mutexConsole);
 
 	pthread_mutex_destroy(&mutexBankAcc);
 	
@@ -216,6 +255,8 @@ int main(int argc, char** argv) {
 	pthread_cond_destroy(&condAvailableTel);
 
 	pthread_cond_destroy(&condAvailableCashiers);
+
+	pthread_cond_destroy(&condTheaterTable);
 
 	return 0;
 }
