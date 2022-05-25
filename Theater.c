@@ -1,7 +1,7 @@
 #include "Data.h"
  
 
-unsigned int seed;
+unsigned long seed;
 int availableCashiers = Ncash;
 int availableTel = Ntel;
 int bankAccount = 0;
@@ -10,8 +10,8 @@ double successfullTransactions = 0;
 double unsuccessfullTransactionsSeats = 0;
 double unsuccessfullTransactionsCard = 0;
 int totalTransactionCost = 0;
-//waitingTime = 0;
-//serviceTime = 0;
+double waitingTime = 0;
+double serviceTime = 0;
 
 
 void* routine(void* arg){
@@ -27,14 +27,20 @@ void* routine(void* arg){
 	int endingIndex = 0;				//Index to iterate in search of the seats
 	int seatsIndex [seatsToReserve];	//Array to hold the index of the seats to be reserved
 	int ticketsCost = 0;				//Cost of the tickets
-	unsigned int seatSeed = seed + time(NULL);
+	double randomTimer ;				//Random amount of time to sleep
+	flag = 0;							//flag to check whether the seats have been found already or not
+	char zone;							//A char to help us print the zone (A , B) instead of (0 , 1)
+	unsigned long seatSeed;				//Seed for the seat selection to get more random results
+	unsigned long zoneSeed;				//Seed for the seat selection to get more random results
+	unsigned long cardSeed;				//Seed for the card to either go through or not and get more random results
+	unsigned long waitSeed;				//Seed for waiting time to get more random results
 
-	struct timespec startTime;
-	flag = 0;
-	clock_gettime(CLOCK_REALTIME, &startTime);
-	start = startTime.tv_sec;
-	seatsToReserve = rand_r(&seatSeed) % NseatLow + NseatHigh;			//Amount of seats the client wants
-	seatsZone = 1;						// Variable to hold the prefered zone. 0 = A 1 = B
+	struct timespec startTimeService;	//Starting time of the whole process of reserving the tickets
+	struct timespec	endTimeService;		//Ending time of the whole process of reserving the tickets
+
+	clock_gettime(CLOCK_REALTIME, &startTimeService);
+	start = startTimeService.tv_sec;
+
 	pthread_mutex_lock(&mutexAvailableTel);
 	while(availableTel == 0){
 		pthread_mutex_lock(&screenMutex);
@@ -47,15 +53,24 @@ void* routine(void* arg){
 	pthread_mutex_unlock(&screenMutex);
 	availableTel--;
 	pthread_mutex_unlock(&mutexAvailableTel);
+	seatSeed = seed + time(NULL);
+	zoneSeed = seed + time(NULL);
+	seatsToReserve = rand_r(&seatSeed) % NseatHigh + NseatLow;			//Amount of seats the client wants
+	seatsZone = rand_r(&zoneSeed) % 100 / 100.0f > PzoneA;				// Variable to hold the prefered zone. 0 = A 1 = B
 	if(seatsZone == 0){
         rowCounter = 0;
         startingIndex = 0;
         endingIndex = NzoneA;
+		zone = 'A';
     }else{
         rowCounter = NzoneA;
         startingIndex = NzoneA;
         endingIndex = NzoneA + NzoneB;
+		zone = 'B';
     }
+	waitSeed = seed + time(NULL);
+	randomTimer = rand_r(&waitSeed) % TseatHigh + TseatLow;			//Amount of time that the operator needs to check for the seats
+	sleep(randomTimer);	
 
 	//----------------------Ticket Reservation Process------------------------
 	pthread_mutex_lock(&mutexTheaterTable);
@@ -89,7 +104,7 @@ void* routine(void* arg){
 	
 	jmp:
 		pthread_mutex_unlock(&mutexTheaterTable);
-		if(flag == 0){
+		if(flag == 0){												//Checking if the operator found available seats. 0 = No 1 = Yes
 			pthread_mutex_lock(&screenMutex);
 			printf("Customer's %d transaction failed because there are no available seats.\n",custID);
 			pthread_mutex_unlock(&screenMutex);
@@ -99,7 +114,6 @@ void* routine(void* arg){
 			pthread_cond_signal(&condAvailableTel);
 			pthread_mutex_unlock(&mutexAvailableTel);
 		}else{
-			//pthread_cond_signal(&condTheaterTable);
 			pthread_mutex_lock(&screenMutex);
 			printf("Seat counter jmp: %d\n", seatCounter);
 			printf("Seats asked: %d\n",seatsToReserve);
@@ -128,12 +142,16 @@ void* routine(void* arg){
 			availableTel++;											//releasing the operator
 			pthread_cond_signal(&condAvailableTel);
 			pthread_mutex_unlock(&mutexAvailableTel);
+			waitSeed = seed + time(NULL);
+			randomTimer = rand_r(&waitSeed) % TcashHigh + TcashLow;			//Amount of time that the cashier needs to try the card
+			sleep(randomTimer);	
 
-			cardAccepted = rand_r(&seed) % 100 / 100.0f > PcardSuccess;
+			cardSeed = seed + time(NULL);
+			cardAccepted = rand_r(&cardSeed) % 100 / 100.0f > PcardSuccess;
 			if(cardAccepted == 0){
 				pthread_mutex_lock(&screenMutex);
 				printf("Customer %d\n",custID);
-				printf("The transaction is completed!. Your seats are: zone <%d>, row <%d>,number <",seatsZone,rowCounter);
+				printf("The transaction is completed!. Your seats are: zone <%c>, row <%d>,number <",zone,rowCounter);
 				for(int a=0;a<seatCounter;a++){
 					printf("%d,",seatsIndex[a]);
 				}
@@ -146,7 +164,7 @@ void* routine(void* arg){
 			}else{
 				pthread_mutex_lock(&screenMutex);
 				printf("Customer %d\n",custID);
-				printf("The transaction failed because your card was declined.");
+				printf("The transaction failed because your card was declined.\n");
 				pthread_mutex_unlock(&screenMutex);
 				unsuccessfullTransactionsCard++;
 
@@ -158,9 +176,13 @@ void* routine(void* arg){
 			}
 			availableCashiers++;
 			pthread_cond_signal(&condAvailableCashiers);
-			
 
 		}
+		clock_gettime(CLOCK_REALTIME, &endTimeService);
+		finish = endTimeService.tv_sec;
+		waitingTime = finish - start;
+		printf("Customer %d, waited a total of %0.00f seconds\n",custID,waitingTime);
+		pthread_exit(NULL);	
 		
 
 	
@@ -171,6 +193,7 @@ int main(int argc, char** argv) {
 	//-------------------------Input-------------------------
 
 	int Ncust;
+	unsigned long seedSleep;
 	printf("Please enter the number of clients.\n");
 	scanf("%i", &Ncust);
 	if(Ncust<0){
@@ -178,8 +201,8 @@ int main(int argc, char** argv) {
 		exit(-1);
 	}
 	printf("Please enter the value of the seed for the random number generator.\n");
-	scanf("%d", &seed);
-	printf("\n\nClients: %i\nSeed: %d\n\n\n", Ncust, seed);
+	scanf("%ld", &seed);
+	printf("\n\nClients: %i\nSeed: %ld\n\n\n", Ncust, seed);
 
 	//-------------------------Variable Declaration-------------------------
 
@@ -211,8 +234,9 @@ int main(int argc, char** argv) {
 			perror("Failed to create thread");
 			return 1;
 		}
-		double randomCallTimer = rand_r(&seed) % TresHigh + TresLow;
-		sleep(randomCallTimer);
+		seedSleep = rand_r(&seed) + time(NULL);
+		double randomCallTimerMain = rand_r(&seedSleep) % TresHigh + TresLow;			//Random number of seconds untill next client calls
+		sleep(randomCallTimerMain);
 	}
 	for(int i = 0; i < Ncust; i++){
 		if(pthread_join(th[i], NULL) != 0){
