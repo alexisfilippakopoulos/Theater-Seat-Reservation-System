@@ -1,5 +1,6 @@
 #include "Data.h"
  
+int** plan;
 
 unsigned long seed;
 int availableCashiers = Ncash;
@@ -84,6 +85,9 @@ void* routine(void* arg){
 				rowCounter = i;
 			}
 			if (theater[i][j] == 0){
+				if(j-seatCounter-seatsToReserve>0){					//This is to save time.We dont have to check the whole row if the remaining seats are less than the ones we need
+					continue;										//Continue searching on the next row
+				}
 				seatsIndex[seatCounter] = j;
 				seatCounter ++;
 				if(seatCounter == seatsToReserve){
@@ -148,20 +152,26 @@ void* routine(void* arg){
 
 			cardSeed = seed + time(NULL);
 			cardAccepted = rand_r(&cardSeed) % 100 / 100.0f > PcardSuccess;
-			if(cardAccepted == 0){
+			if(cardAccepted == 0){											//if card gets accepted
 				pthread_mutex_lock(&screenMutex);
 				printf("Customer %d\n",custID);
 				printf("The transaction is completed!. Your seats are: zone <%c>, row <%d>,number <",zone,rowCounter);
 				for(int a=0;a<seatCounter;a++){
 					printf("%d,",seatsIndex[a]);
+					plan[custID-1][a+2] = seatsIndex [a];
 				}
 				printf("> and the total cost is <%d> euro.\n",ticketsCost);
 				pthread_mutex_unlock(&screenMutex);
+
+				plan [custID-1][0] = seatsZone;
+				plan [custID-1][1] = rowCounter;
+
+
 				successfullTransactions++;
 				pthread_mutex_lock(&mutexBankAcc);
 				bankAccount+=ticketsCost;
 				pthread_mutex_unlock(&mutexBankAcc);
-			}else{
+			}else{															//if card gets declined
 				pthread_mutex_lock(&screenMutex);
 				printf("Customer %d\n",custID);
 				printf("The transaction failed because your card was declined.\n");
@@ -181,7 +191,9 @@ void* routine(void* arg){
 		clock_gettime(CLOCK_REALTIME, &endTimeService);
 		finish = endTimeService.tv_sec;
 		waitingTime = finish - start;
+		pthread_mutex_lock(&screenMutex);
 		printf("Customer %d, waited a total of %0.00f seconds\n",custID,waitingTime);
+		pthread_mutex_unlock(&screenMutex);
 		pthread_exit(NULL);	
 		
 
@@ -194,6 +206,7 @@ int main(int argc, char** argv) {
 
 	int Ncust;
 	unsigned long seedSleep;
+	int *planForOutput  = malloc(Ncust*7*sizeof(int));
 	printf("Please enter the number of clients.\n");
 	scanf("%i", &Ncust);
 	if(Ncust<0){
@@ -222,7 +235,27 @@ int main(int argc, char** argv) {
 				
 	}
 	*/
-	
+	//--------------------------------------Array for outputing the theater plan---------------------------------------------
+	//allocate outer array
+	plan = malloc(sizeof(int*)*Ncust);
+	//allocate inner arrays
+	for(int i = 0 ;i < Ncust ;i++){
+		plan[i] = malloc(sizeof(int*)*7);
+	}
+
+	for (int i =0;i< Ncust ;i++){
+		for (int j =0;j<7;j++){
+			plan[i][j] = -1;
+		}
+	}
+	/*
+	printf("ARXIKO PLANO\n")
+	for (int i =0;i< Ncust ;i++){
+		printf("\n")
+		for (int j =0;j<7;j++){
+			prinf("%d",plan[i][j])
+		}
+	}*/
 
 	//-------------------------Thread Creation-------------------------
 	int customer_id[Ncust];
@@ -263,6 +296,32 @@ int main(int argc, char** argv) {
 	printf("Successfull transactions: %0.02f\n",successfullTransactions );
 	printf("Unsuccessfull transactions due to card: %0.02f\n",unsuccessfullTransactionsCard );
 	printf("Unsuccessfull transactions due to seats: %0.02f\n",unsuccessfullTransactionsSeats);
+
+	for (int i =0;i<Ncust;i++){
+		if(plan[i][0] == 0){
+			printf("Customer <%d> Zone <%c> Row<%d> Seats<",customer_id[i],'A',plan[i][1]);
+		}else{
+			printf("Customer <%d> Zone <%c> Row<%d> Seats<",customer_id[i],'B',plan[i][1]);
+		}
+		
+		for (int j =2;j<7;j++){
+			if(plan[i][j]!=-1){
+				printf("%d,",plan[i][j]);
+			}
+			
+		}
+		printf(">\n");
+	}
+
+	//Deallocate subarrays
+	for(int i = 0 ;i <Ncust;i++){
+		free(plan[i]);
+		plan[i]=NULL;
+	}
+	//deallocate outer array
+	free(plan);
+	plan = NULL;
+
 
 	//-------------------------Mutex Destruction-------------------------
 	
