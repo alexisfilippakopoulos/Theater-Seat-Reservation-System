@@ -1,6 +1,8 @@
 #include "Data.h"
  
-int** plan;
+int** plan;				//pointer to the array that will print the theater plan
+//int* waitingTimeArray;	//pointer to the array that will hold the waiting times for all the customers
+//int* serviceTimeArray;	//pointer to the array that will hold the service times for all the customers
 
 unsigned long seed;
 int availableCashiers = Ncash;
@@ -21,7 +23,7 @@ void* routine(void* arg){
 	int seatsToReserve;
 	int flag;	
 	int seatCounter,rowCounter;						
-	int start,finish;
+	double start,finish,startWaitCashier,finishWaitCashier,finishWaitOperator;
 	int cardAccepted;					//Card state. 0
 	seatCounter = 0;					//Counter to make sure the seats are continuous
 	int startingIndex = 0;				//Index to iterate in search of the seats
@@ -38,6 +40,9 @@ void* routine(void* arg){
 
 	struct timespec startTimeService;	//Starting time of the whole process of reserving the tickets
 	struct timespec	endTimeService;		//Ending time of the whole process of reserving the tickets
+	struct timespec	startTimeWaitingCashier;	//Starting time of the customer waiting for an available operator/cashier
+	struct timespec	endTimeWaitingCashier;		//Ending time of the customer waiting for an available cashier
+	struct timespec	endTimeWaitingOperator;		//Ending time of the customer waiting for an available operator
 
 	clock_gettime(CLOCK_REALTIME, &startTimeService);
 	start = startTimeService.tv_sec;
@@ -52,6 +57,9 @@ void* routine(void* arg){
 	pthread_mutex_lock(&screenMutex);
 	printf("An operator is now available. Customer %d, we are connecting you. \n",custID);
 	pthread_mutex_unlock(&screenMutex);
+	clock_gettime(CLOCK_REALTIME, &endTimeWaitingOperator);
+	finishWaitOperator = endTimeWaitingOperator.tv_sec;
+	printf("Waiting time for operator: %0.02f\n",finishWaitOperator-start);
 	availableTel--;
 	pthread_mutex_unlock(&mutexAvailableTel);
 	seatSeed = seed + time(NULL);
@@ -72,7 +80,7 @@ void* routine(void* arg){
 	waitSeed = seed + time(NULL);
 	randomTimer = rand_r(&waitSeed) % TseatHigh + TseatLow;			//Amount of time that the operator needs to check for the seats
 	sleep(randomTimer);	
-
+	printf("Timer: %d Customer: %d\n",randomTimer,custID);
 	//----------------------Ticket Reservation Process------------------------
 	pthread_mutex_lock(&mutexTheaterTable);
     for (int i = startingIndex; i < endingIndex; i++){
@@ -130,6 +138,14 @@ void* routine(void* arg){
 					printf("%d",theater[i][j]);
 				}
 			}*/
+			pthread_mutex_lock(&mutexAvailableTel);
+			availableTel++;											//releasing the operator
+			pthread_cond_signal(&condAvailableTel);
+			pthread_mutex_unlock(&mutexAvailableTel);
+
+			clock_gettime(CLOCK_REALTIME, &startTimeWaitingCashier);
+			startWaitCashier = startTimeWaitingCashier.tv_sec;
+
 			pthread_mutex_lock(&mutexAvailableCashiers);
 			while (availableCashiers == 0){
 				pthread_mutex_lock(&screenMutex);
@@ -142,10 +158,11 @@ void* routine(void* arg){
 			pthread_mutex_unlock(&screenMutex);
 			availableCashiers--;
 			pthread_mutex_unlock(&mutexAvailableCashiers);
-			pthread_mutex_lock(&mutexAvailableTel);
-			availableTel++;											//releasing the operator
-			pthread_cond_signal(&condAvailableTel);
-			pthread_mutex_unlock(&mutexAvailableTel);
+
+			clock_gettime(CLOCK_REALTIME, &endTimeWaitingCashier);
+			finishWaitCashier = endTimeWaitingCashier.tv_sec;
+			printf("Waiting time for cashier: %0.02f\n",finishWaitCashier-startWaitCashier);
+
 			waitSeed = seed + time(NULL);
 			randomTimer = rand_r(&waitSeed) % TcashHigh + TcashLow;			//Amount of time that the cashier needs to try the card
 			sleep(randomTimer);	
@@ -158,14 +175,14 @@ void* routine(void* arg){
 				printf("The transaction is completed!. Your seats are: zone <%c>, row <%d>,number <",zone,rowCounter);
 				for(int a=0;a<seatCounter;a++){
 					printf("%d,",seatsIndex[a]);
-					plan[custID-1][a+2] = seatsIndex [a];
+					plan[custID-1][a+4] = seatsIndex [a];
 				}
 				printf("> and the total cost is <%d> euro.\n",ticketsCost);
 				pthread_mutex_unlock(&screenMutex);
 
 				plan [custID-1][0] = seatsZone;
 				plan [custID-1][1] = rowCounter;
-
+				
 
 				successfullTransactions++;
 				pthread_mutex_lock(&mutexBankAcc);
@@ -190,10 +207,13 @@ void* routine(void* arg){
 		}
 		clock_gettime(CLOCK_REALTIME, &endTimeService);
 		finish = endTimeService.tv_sec;
-		waitingTime = finish - start;
+		serviceTime = finish - start;
+		waitingTime = (finishWaitCashier - startWaitCashier) + (finishWaitOperator - start);
+		plan [custID-1][2] = serviceTime;
+		plan [custID-1][3] = waitingTime;
 		pthread_mutex_lock(&screenMutex);
-		printf("Customer %d, waited a total of %0.00f seconds\n",custID,waitingTime);
-		pthread_mutex_unlock(&screenMutex);
+		printf("Customer %d, waited a total of %0.00f seconds\n",custID,serviceTime);
+		pthread_mutex_unlock(&screenMutex); 
 		pthread_exit(NULL);	
 		
 
@@ -206,7 +226,6 @@ int main(int argc, char** argv) {
 
 	int Ncust;
 	unsigned long seedSleep;
-	int *planForOutput  = malloc(Ncust*7*sizeof(int));
 	printf("Please enter the number of clients.\n");
 	scanf("%i", &Ncust);
 	if(Ncust<0){
@@ -218,6 +237,10 @@ int main(int argc, char** argv) {
 	printf("\n\nClients: %i\nSeed: %ld\n\n\n", Ncust, seed);
 
 	//-------------------------Variable Declaration-------------------------
+	int *planForOutput  = malloc(Ncust*9*sizeof(int));
+	
+	double waitingTimeSum = 0;								//For the statistics
+	double serviceTimeSum = 0;								//For the statistics
 
 	theater [NzoneA + NzoneB] [Nseat];
 	for(int i = 0; i < NzoneA + NzoneB; i++){
@@ -244,7 +267,7 @@ int main(int argc, char** argv) {
 	}
 
 	for (int i =0;i< Ncust ;i++){
-		for (int j =0;j<7;j++){
+		for (int j =0;j<9;j++){
 			plan[i][j] = -1;
 		}
 	}
@@ -287,6 +310,10 @@ int main(int argc, char** argv) {
 	}
 	printf("\n");
 	transactionsAttempted = successfullTransactions + unsuccessfullTransactionsCard + unsuccessfullTransactionsSeats;
+	for (int i = 0;i<Ncust;i++){
+		serviceTimeSum += plan[i][2];
+		waitingTimeSum += plan[i][3];
+	}
 	//-------------------------Output-------------------------
 	printf("The total income from the ticket sales is %d\n",bankAccount);
 	printf("Total transactions attempted: %0.02f\n",transactionsAttempted);
@@ -296,15 +323,22 @@ int main(int argc, char** argv) {
 	printf("Successfull transactions: %0.02f\n",successfullTransactions );
 	printf("Unsuccessfull transactions due to card: %0.02f\n",unsuccessfullTransactionsCard );
 	printf("Unsuccessfull transactions due to seats: %0.02f\n",unsuccessfullTransactionsSeats);
+	//printf("Service time sum: %d seconds\n",serviceTimeSum);
+	printf("Average service time: %0.02f seconds\n",serviceTimeSum/Ncust);
+	printf("Waiting time sum: %d seconds\n",waitingTimeSum);
+	printf("Average waiting time: %0.02f seconds\n",waitingTimeSum/Ncust);
 
 	for (int i =0;i<Ncust;i++){
+		if(plan[i][0]==-1){
+			continue;
+		}
 		if(plan[i][0] == 0){
 			printf("Customer <%d> Zone <%c> Row<%d> Seats<",customer_id[i],'A',plan[i][1]);
 		}else{
 			printf("Customer <%d> Zone <%c> Row<%d> Seats<",customer_id[i],'B',plan[i][1]);
 		}
 		
-		for (int j =2;j<7;j++){
+		for (int j =4;j<9;j++){
 			if(plan[i][j]!=-1){
 				printf("%d,",plan[i][j]);
 			}

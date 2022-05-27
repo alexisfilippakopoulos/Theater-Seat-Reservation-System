@@ -62,7 +62,18 @@ int main(int argc, char** argv){
 
 
 
+/*-----------PINAKAS PLAN----------------------
 
+rows:Customers
+cols:
+0.Zone
+1.Row
+2.Service Time
+3.Waiting Time
+4.-8.Seats
+
+
+*/
 
 
 
