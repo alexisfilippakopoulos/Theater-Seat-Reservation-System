@@ -59,13 +59,16 @@ void* routine(void* arg){
 	pthread_mutex_unlock(&screenMutex);
 	clock_gettime(CLOCK_REALTIME, &endTimeWaitingOperator);
 	finishWaitOperator = endTimeWaitingOperator.tv_sec;
-	printf("Waiting time for operator: %0.02f\n",finishWaitOperator-start);
+	//printf("Waiting time for operator: %0.02f\n",finishWaitOperator-start);
 	availableTel--;
 	pthread_mutex_unlock(&mutexAvailableTel);
 	seatSeed = seed + time(NULL);
 	zoneSeed = seed + time(NULL);
 	seatsToReserve = rand_r(&seatSeed) % NseatHigh + NseatLow;			//Amount of seats the client wants
 	seatsZone = rand_r(&zoneSeed) % 100 / 100.0f > PzoneA;				// Variable to hold the prefered zone. 0 = A 1 = B
+	pthread_mutex_lock(&screenMutex);
+	printf("ATTENTION!!!! Customer %d wants zone %d and %d seats\n",custID,seatsZone,seatsToReserve);
+	pthread_mutex_unlock(&screenMutex);
 	if(seatsZone == 0){
         rowCounter = 0;
         startingIndex = 0;
@@ -80,7 +83,6 @@ void* routine(void* arg){
 	waitSeed = seed + time(NULL);
 	randomTimer = rand_r(&waitSeed) % TseatHigh + TseatLow;			//Amount of time that the operator needs to check for the seats
 	sleep(randomTimer);	
-	printf("Timer: %d Customer: %d\n",randomTimer,custID);
 	//----------------------Ticket Reservation Process------------------------
 	pthread_mutex_lock(&mutexTheaterTable);
     for (int i = startingIndex; i < endingIndex; i++){
@@ -93,7 +95,7 @@ void* routine(void* arg){
 				rowCounter = i;
 			}
 			if (theater[i][j] == 0){
-				if(j-seatCounter-seatsToReserve>0){					//This is to save time.We dont have to check the whole row if the remaining seats are less than the ones we need
+				if(j-seatCounter+seatsToReserve>Nseat){				//This is to save time.We dont have to check the whole row if the remaining seats are less than the ones we need
 					continue;										//Continue searching on the next row
 				}
 				seatsIndex[seatCounter] = j;
@@ -127,17 +129,14 @@ void* routine(void* arg){
 			pthread_mutex_unlock(&mutexAvailableTel);
 		}else{
 			pthread_mutex_lock(&screenMutex);
-			printf("Seat counter jmp: %d\n", seatCounter);
-			printf("Seats asked: %d\n",seatsToReserve);
-			printf("Cost: %d\n",ticketsCost);
-			pthread_mutex_unlock(&screenMutex);
-			/*printf("Pinakas meta ton %d\n",custID);
+			printf("Pinakas meta ton %d\n",custID);
 			for (int i = 0;i<NzoneA + NzoneB;i++){
 				printf("\n");
 				for (int j = 0;j<Nseat;j++){
 					printf("%d",theater[i][j]);
 				}
-			}*/
+			}
+			pthread_mutex_unlock(&screenMutex);
 			pthread_mutex_lock(&mutexAvailableTel);
 			availableTel++;											//releasing the operator
 			pthread_cond_signal(&condAvailableTel);
